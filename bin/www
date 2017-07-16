@@ -1,0 +1,191 @@
+#!/usr/bin/env node
+
+/**
+ * Module dependencies.
+ */
+
+var io = require('socket.io');
+var app = require('../app');
+var debug = require('debug')('Xserver:server');
+var fs = require('fs');
+var path = require('path');
+var allsocket = {};
+var allroom = [];
+/**
+ * Get port from environment and store in Express.
+ */
+
+var port = normalizePort(process.env.PORT || '3007');
+app.set('port', port);
+
+/**
+ * Create HTTP server.
+ */
+var updir=__dirname.slice(0,-4);
+var  options={
+    key: fs.readFileSync(path.join(updir, 'fake-keys/v.jiashizhan.com.key')),
+    cert: fs.readFileSync(path.join(updir, 'fake-keys/v.jiashizhan.com.pem'))
+};
+var server = require('https').createServer(options,app);
+server= server.listen(process.env.PORT || port, process.env.IP || "192.168.0.109", function() {
+    var addr = server.address();
+    console.log("Server listening at", addr.address + ":" + addr.port);
+});
+/**
+ * Listen on provided port, on all network interfaces.
+ */
+server.on('error', onError);
+server.on('listening', onListening);
+try {
+    io = io(server);
+    io.on('connection', onConnection);
+} catch (e) {
+    io = io.listen(server, {
+        log: false,
+        origins: '*:*'
+    });
+
+    io.set('transports', [
+        'websocket', // 'disconnect' EVENT will work only with 'websocket'
+        'flashsocket',
+        'htmlfile',
+        'xhr-polling',
+        'jsonp-polling'
+    ]);
+
+    io.sockets.on('connection', onConnection);
+}
+function onConnection(socket){
+
+    socket.on('login',function(room,username,userid) {
+        for(var g = 0;g<allroom.length;g++){
+            if(allroom[g] !== room || allroom[g] === ""){
+                allroom.push(room);
+            }
+        }
+        var all_ids = [];
+        console.log("收到了Login");
+        socket.userId = userid;
+        socket.room = room;
+        socket.username = username;
+        socket.join(room);
+        if(allroom.indexOf(room) > -1){
+            console.log("这是房客");
+            allsocket[room].push(socket);
+            socket.broadcast.emit('new_peer',socket.userId,socket.room,socket.username);
+            var current_room = allsocket[room];
+            for (var j in current_room) {
+                if (current_room[j] !== socket) {
+                    all_ids.push(current_room[j].userId);
+                }
+            }
+
+        }else{
+            allroom.push(room);
+            allsocket[room] = [socket];
+            console.log("这是房主")
+        }
+        socket.emit('peer', all_ids, socket.userId);
+    });
+
+    socket.on('event',function(desc) {
+        var json = JSON.parse(desc);
+        console.log(json.data.userid+"收到了event"+desc);
+        // var weiyideren;
+        // var danyi_socket = allsocket[socket.room];
+        // for(var l in danyi_socket){
+        //     if(danyi_socket[l].userId === json.data.userid){
+        //         weiyideren = danyi_socket[l]
+        //     }
+        // }
+        // weiyideren.emit('event',json)
+        socket.broadcast.emit('event',json)
+    });
+
+    socket.on('Offer',function(desc) {
+        var weiyideren;
+        var json = JSON.parse(desc);
+        console.log(json.data.userid+"收到了Offer"+desc);
+        var danyi_socket = allsocket[socket.room];
+        for(var l in danyi_socket){
+            if(danyi_socket[l].userId === json.data.userid){
+                weiyideren = danyi_socket[l];
+                console.log("socket----"+danyi_socket[l])
+            }
+        }
+        weiyideren.emit('Offer',json);
+    });
+    socket.on('Answer',function(desc) {
+        var weiyideren;
+        var json = JSON.parse(desc);
+        console.log(json.data.userid+"收到了Answer"+ desc+  "    ");
+        var danyi_socket = allsocket[socket.room];
+        for(var l in danyi_socket){
+            if(danyi_socket[l].userId === json.data.userid){
+                weiyideren = danyi_socket[l];
+                console.log("socket----"+danyi_socket[l])
+            }
+        }
+        weiyideren.emit('Answer',json);
+    console.log('链接上了');
+})
+}
+/**
+ * Normalize a port into a number, string, or false.
+ */
+
+function normalizePort(val) {
+  var port = parseInt(val, 10);
+
+  if (isNaN(port)) {
+    // named pipe
+    return val;
+  }
+
+  if (port >= 0) {
+    // port number
+    return port;
+  }
+
+  return false;
+}
+
+/**
+ * Event listener for HTTP server "error" event.
+ */
+
+function onError(error) {
+  if (error.syscall !== 'listen') {
+    throw error;
+  }
+
+  var bind = typeof port === 'string'
+    ? 'Pipe ' + port
+    : 'Port ' + port;
+
+  // handle specific listen errors with friendly messages
+  switch (error.code) {
+    case 'EACCES':
+      console.error(bind + ' requires elevated privileges');
+      process.exit(1);
+      break;
+    case 'EADDRINUSE':
+      console.error(bind + ' is already in use');
+      process.exit(1);
+      break;
+    default:
+      throw error;
+  }
+}
+
+/**
+ * Event listener for HTTP server "listening" event.
+ */
+
+function onListening() {
+  var addr = server.address();
+  var bind = typeof addr === 'string'
+    ? 'pipe ' + addr
+    : 'port ' + addr.port;
+  debug('Listening on ' + bind);
+}
